@@ -336,7 +336,10 @@ def _format_level(level):
 
 def _format_md_attr_list(item, linkify):
     """Create a Markdown attribute list for a heading."""
-    return " {{: #{u} }}".format(u=item.uid) if linkify else ''
+    if item.reviewed:
+        return " {{: #{u} }}".format(u=item.uid) if linkify else ''
+    else:
+        return " {{: #{u} .needsreview}}".format(u=item.uid) if linkify else ''
 
 
 def _format_text_ref(item):
