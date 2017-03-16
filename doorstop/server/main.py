@@ -9,19 +9,21 @@ import argparse
 import logging
 
 import bottle
-from bottle import get, post, request, hook, response
+from bottle import get, post, request, hook, response, route, static_file
 
 from doorstop import common, build, publisher
 from doorstop.common import HelpFormatter
 from doorstop.server import utilities
 from doorstop import settings
 from doorstop.core import vcs
+from doorstop.core import types
 
 log = common.logger(__name__)
 
 app = utilities.StripPathMiddleware(bottle.app())
 tree = None  # set in `run`, read in the route functions
 numbers = defaultdict(int)  # cache of next document numbers
+TEMPLATE  = os.path.join(os.path.dirname(__file__), '..', 'core', 'files', 'server.html')
 
 
 def main(args=None):
@@ -57,10 +59,10 @@ def main(args=None):
                         level=settings.VERBOSE_LOGGING_LEVEL)
 
     # Run the program
-    run(args, os.getcwd(), parser.error)
+    run(args, os.getcwd())
 
 
-def run(args, cwd, _):
+def run(args, cwd):
     """Start the server.
 
     :param args: Namespace of CLI arguments (from this module or the CLI)
@@ -77,7 +79,7 @@ def run(args, cwd, _):
         url = utilities.build_url(host=host, port=port)
         webbrowser.open(url)
     bottle.run(app=app, host=host, port=port,
-               debug=args.debug, reloader=args.debug)
+               debug=True, reloader=args.debug)
 
 
 @hook('after_request')
@@ -115,8 +117,7 @@ def get_all_documents():
         prefixes = [str(document.prefix) for document in tree]
         return '<br>'.join(prefixes)
 
-
-@get('/documents/<prefix>')
+@get('/documents/<prefix>/')
 def get_document(prefix):
     """Read a tree's document."""
     document = tree.find_document(prefix)
@@ -124,8 +125,19 @@ def get_document(prefix):
         data = {str(item.uid): item.data for item in document}
         return data
     else:
-        return publisher.publish_lines(document, ext='.html')
+        return publisher.publish_lines(document, ext='.html',
+                                       template=TEMPLATE, linkify=True)
 
+@route('/documents/<prefix>/assets/<filepath:path>')
+def server_static(prefix, filepath):
+    if os.path.split(filepath)[0] in ['_css', '_js']:
+        path = os.path.join(os.path.dirname(__file__), '..', 'core', 'files', 'assets')
+    else:
+        document = tree.find_document(prefix)
+        path = os.path.join(document.path, 'assets')
+    print(path)
+    response.set_header('Cache-Control', 'max-age=0')
+    return static_file(filepath, root=path)
 
 @get('/documents/<prefix>/items')
 def get_items(prefix):
@@ -145,9 +157,12 @@ def get_item(prefix, uid):
     document = tree.find_document(prefix)
     item = document.find_item(uid)
     if utilities.json_response(request):
-        return {'data': item.data}
+        children = ", ".join([str(child) for child in item.find_child_links()])[2:]
+        return {'text': item.text,
+                'links': ", ".join([str(uid) for uid in item.parent_links]),
+                'children': children}
     else:
-        return publisher.publish_lines(item, ext='.html')
+        return publisher.publish_lines(item, ext='.html', linkify=True)
 
 
 @get('/documents/<prefix>/items/<uid>/attrs')
@@ -193,6 +208,26 @@ def post_numbers(prefix):
     else:
         return str(number)
 
+
+@post('/documents/<prefix>/items/<uid>')
+def save_item(prefix, uid):
+    """Update a document's item."""
+    document = tree.find_document(prefix)
+    item = document.find_item(uid)
+
+    itemtext = request.forms.itemtext
+    item.text = itemtext
+
+    link_text = request.forms.links
+    if ',' in link_text:
+        links = link_text.split(',')
+    else:
+        links = link_text.split()
+    links = [l.strip() for l in links]
+
+    if links:
+        item.links = links
+    return {'result':'ok'}
 
 if __name__ == '__main__':  # pragma: no cover (manual test)
     main()

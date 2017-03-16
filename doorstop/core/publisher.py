@@ -497,7 +497,8 @@ def _lines_html(obj, linkify=False, extensions=EXTENSIONS, charset='UTF-8',
             template_str = fh.read()
         s = Template(template_str)
         try:
-            html = s.substitute(body=body, toc=toc_html, parent=obj.parent)
+            html = s.substitute(body=body, toc=toc_html, parent=obj.parent,
+                                prefix=obj.prefix)
         except Exception:
             log.error("Problem parsing the template %s", template)
             raise
